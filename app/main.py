@@ -26,7 +26,7 @@ async def delete_booking(
     )
 
     async with transaction() as session:
-        event_result = await session.execute(event_statement).one_or_none()
+        event_result = await session.execute(event_statement)
         event_result = event_result.one_or_none()
 
         if event_result is None:
