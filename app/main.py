@@ -1,39 +1,19 @@
-import os
-
-from dotenv import load_dotenv
-
 from fastapi import FastAPI, HTTPException, Query
-from sqlalchemy import create_engine, insert, select, delete, func
+from sqlalchemy import insert, select, delete, func
 from sqlalchemy.exc import IntegrityError
 from typing import Annotated
 
 from app import schemas
 from app.models import Event
 from app.models import Booking
+from app.engine import engine, transaction
 from app.schemas import EventResponseModel
 
 app = FastAPI()
 
-load_dotenv()
-
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "5432")
-DB_NAME = os.getenv("DB_NAME", "fastapi_db")
-DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASS = os.getenv("DB_PASSWORD", "secret123")
-
-DATABASE_URL = (
-    f"postgresql+psycopg2://"
-    f"{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-)
-engine = create_engine(DATABASE_URL)
 events_table = Event.__table__
 bookings_table = Booking.__table__
 
-
-# TODO
-# delete /events/{event_id}/bookings/{user_id} //отменить бронирование
-#
 
 @app.delete("/events/{event_id}/bookings/{user_id}")
 async def delete_booking(
@@ -45,8 +25,9 @@ async def delete_booking(
         .where(events_table.c.id == event_id)
     )
 
-    with engine.begin() as connection:
-        event_result = connection.execute(event_statement).one_or_none()
+    async with transaction() as session:
+        event_result = await session.execute(event_statement).one_or_none()
+        event_result = event_result.one_or_none()
 
         if event_result is None:
             raise HTTPException(
@@ -60,7 +41,7 @@ async def delete_booking(
             .where(bookings_table.c.user_id == user_id)
         )
 
-        delete_result = connection.execute(booking_statement)
+        delete_result = await session.execute(booking_statement)
 
         if delete_result.rowcount == 0:
             raise HTTPException(
@@ -90,9 +71,9 @@ async def create_booking(
     )
 
     try:
-        with engine.begin() as connection:
-
-            event_result = connection.execute(event_statement).mappings().one_or_none()
+        async with transaction() as session:
+            event_result = await session.execute(event_statement)
+            event_result = event_result.mappings().one_or_none()
 
             if event_result is None:
                 raise HTTPException(
@@ -106,9 +87,8 @@ async def create_booking(
                 .where(bookings_table.c.event_id == event_id)
             )
 
-            booked_count = connection.execute(
-                booked_count_statement
-            ).scalar_one()
+            booked_count = await session.execute(booked_count_statement)
+            booked_count = booked_count.scalar_one()
 
             if booked_count >= event_result["capacity"]:
                 raise HTTPException(
@@ -128,12 +108,11 @@ async def create_booking(
                 )
             )
 
-            booking = (
-                connection.execute(booking_statement).mappings().one()
-            )
+            booking = await session.execute(booking_statement)
+            booking = booking.mappings().one()
 
     except IntegrityError as error:
-        if error.orig.pgcode == "23505":
+        if error.orig.sqlstate == "23505":
             raise HTTPException(
                 status_code=409,
                 detail="User already has a booking for this event",
@@ -153,8 +132,8 @@ async def get_event(event_id: int) -> schemas.GetEventResponse:
         .where(events_table.c.id == event_id)
     )
 
-    with engine.connect() as connection:
-        result = connection.execute(statement)
+    async with transaction() as session:
+        result = await session.execute(statement)
         event = result.mappings().one_or_none()
 
     if event is None:
@@ -179,8 +158,8 @@ async def get_events(query: Annotated[schemas.GetEventsRequestQuery, Query()]) -
         .limit(query.limit)
     )
 
-    with engine.connect() as connection:
-        result = connection.execute(statement)
+    async with transaction() as session:
+        result = await session.execute(statement)
         events = result.mappings().all()
 
     response: schemas.GetEventsResponse = schemas.GetEventsResponse(events = events)
@@ -189,10 +168,6 @@ async def get_events(query: Annotated[schemas.GetEventsRequestQuery, Query()]) -
 
 @app.post("/events", status_code=201)
 async def create_event(event: schemas.CreateEventRequestBody):
-    """
-    Создание нового ивента
-    """
-
     statement = (
         insert(events_table)
         .values(
@@ -207,8 +182,8 @@ async def create_event(event: schemas.CreateEventRequestBody):
         )
     )
 
-    with engine.begin() as connection:
-        result = connection.execute(statement)
+    async with transaction() as session:
+        result = await session.execute(statement)
         event = result.mappings().one()
 
     response = schemas.EventResponseModel(
