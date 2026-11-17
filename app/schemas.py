@@ -43,7 +43,7 @@ class GetEventResponse(BaseModel):
     event: EventResponseModel
 
 
-# POST "/events/{id}/bookings" - create booking
+# POST "/events/{event_id}/bookings" - create booking
 class CreateBookingRequestBody(BaseModel):
     user_id: int
 
@@ -51,3 +51,7 @@ class CreateBookingResponseModel(BaseModel):
     id: int
     event_name: str
     created_at: datetime
+
+# DELETE "/events/{event_id}/bookings/{booking_id}"
+class DeleteBookingResponseModel(BaseModel):
+    message: str

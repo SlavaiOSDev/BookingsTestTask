@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 
 from fastapi import FastAPI, HTTPException, Query
-from sqlalchemy import create_engine, insert, select, func
+from sqlalchemy import create_engine, insert, select, delete, func
 from sqlalchemy.exc import IntegrityError
 from typing import Annotated
 
@@ -34,6 +34,45 @@ bookings_table = Booking.__table__
 # TODO
 # delete /events/{event_id}/bookings/{user_id} //отменить бронирование
 #
+
+@app.delete("/events/{event_id}/bookings/{user_id}")
+async def delete_booking(
+        event_id: int,
+        user_id: int
+) -> schemas.DeleteBookingResponseModel:
+    event_statement = (
+        select(events_table)
+        .where(events_table.c.id == event_id)
+    )
+
+    with engine.begin() as connection:
+        event_result = connection.execute(event_statement).one_or_none()
+
+        if event_result is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Event not found"
+            )
+
+        booking_statement = (
+            delete(bookings_table)
+            .where(bookings_table.c.event_id == event_id)
+            .where(bookings_table.c.user_id == user_id)
+        )
+
+        delete_result = connection.execute(booking_statement)
+
+        if delete_result.rowcount == 0:
+            raise HTTPException(
+                status_code=404,
+                detail="Booking not found",
+            )
+
+    return schemas.DeleteBookingResponseModel(
+        message = "Booking was deleted"
+    )
+
+
 
 @app.post("/events/{event_id}/bookings", status_code=201)
 async def create_booking(
